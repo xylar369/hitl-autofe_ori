@@ -253,8 +253,9 @@ def mask_feature_name(df):
     return df
 
 def get_X_y(df):
-    X = df.iloc[:, :-1]
-    y = df.iloc[:, -1]
+    label_col = df.columns[-1]
+    y = df[label_col]
+    X = df.drop(columns=[label_col])
 
     return X, y
     

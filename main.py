@@ -1,6 +1,6 @@
-from utils.data import minmax_scale_datasets, csv_processing, get_data_domains, mask_feature_name, get_X_y
+from utils.data import minmax_scale_datasets, get_data_domains, mask_feature_name, get_X_y
 from utils.prompt import extract_and_save_code, get_prompt_v4
-from utils.xgboost_train import train_xgboost_model
+from utils.xgboost_train import train_default_xgboost_model
 from utils.run_code import  safe_apply_feature_engineering
 from utils.config_loader import load_config, validate_config, save_config
 # import shap
@@ -18,29 +18,6 @@ import argparse
 Add past best stratgies to the prompt.
 
 """
-# --- Helper: Quick Model Evaluation ---
-def quick_eval(x_train, y_train, x_val, y_val, x_test, y_test):
-    """
-    Helper to quickly scale and train to get a validation score.
-    Returns: val_acc
-    """
-    try:
-        # Standardize ·using your existing logic
-        x_tr, x_v, x_te = minmax_scale_datasets(x_train, x_val, x_test)
-        
-        # Train (assuming train_xgboost_model returns: model, train_acc, val_acc, test_acc)
-        _, _, val_acc, _ = train_xgboost_model(x_tr, y_train, x_v, y_val, x_te, y_test, params={})
-        return val_acc
-    except Exception as e:
-        print(f"Eval failed: {e}")
-        return 0.0
-
-# --- Helper: Check for Infs ---
-# def check_inf_error(df, feature_name):
-#     if feature_name and feature_name in df.columns:
-#         if np.isinf(df[feature_name]).any():
-#             return True
-#     return False
 
 def check_inf_error(df, feature_name):
     """
@@ -153,67 +130,72 @@ I want to obtain 3 parts information.
 2. improvement.
 3. validation scores.
 """
-def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, masked_flag=False,
+def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, masked_flag=False, score_type="auc",
                         results_dir="./results/", prompt_dir="./prompt/", code_dir="./code/", llm_model="gpt-5-nano",
                         temperature=0.2, drop_threshold=1.5, port=8000):
 
     print("Start Processing (Optimization Target: Test Accuracy)")
     
+    # PHASE 1: data processing 
     # 1. Load Data
     train_df = pd.read_csv(csv_train)
     val_df = pd.read_csv(csv_val)
     test_df = pd.read_csv(csv_test)
     
-    # Pre-processing (Masking)
+    # 2. Pre-processing (Masking)
     if masked_flag:
         train_df = mask_feature_name(train_df)
         val_df = mask_feature_name(val_df)
         test_df = mask_feature_name(test_df)
 
-    # 
-    x_train_df, y_train = csv_processing(train_df)
-    x_val_df, y_val = csv_processing(val_df)
-    x_test_df, y_test = csv_processing(test_df)
+    # 3. Split X, y
+    x_train_df, y_train = get_X_y(train_df)
+    x_val_df, y_val = get_X_y(val_df)
+    x_test_df, y_test = get_X_y(test_df)
 
-    # 4. Set Validation Data to be the Test Data
-    # This forces the "Validation Accuracy" to actually be "Test Accuracy"
-    x_val_df = x_test_df.copy()
-    y_val = y_test.copy()
-
-    # Load Metadata
+    # 4. Load Metadata
     dataset_name = "unknown"
+    description = ""
     with open(metadata_path, 'r') as f:
         meta = json.load(f)
         dataset_name = meta.get("dataset_name", "unknown")
-    f.close()
-
-    description_path = metadata_path.replace("metadata.json", f"{dataset_name}_description.txt")
-    description = ""
-    with open(description_path, "r") as f:
-        description = f.read()
+        description = meta.get("description", "")
     f.close()
     
+    # PHASE 2: Init Variables
     # Init Tracking
     last_step_report = "No previous strategies. This is the first iteration."
     
     # Initial Baseline
-    print("Running Baseline on Combined Train vs Test...")
-    # Note: We pass x_test_df as the validation set here
-    x_tr, x_v, x_te = minmax_scale_datasets(x_train_df, x_val_df, x_test_df)
-    
-    # train_xgboost returns: clf, train_acc, val_acc, test_acc
-    # Since x_v == x_te, val_acc will be equal to test_acc
+    # when Optimization, LLM only can use the score of val
+    # After Opitmization, we will combine train and val to get final results
+    # This aligns with the baseline
     start_time = time.time()
-    _, _, val_acc, test_acc = train_xgboost_model(x_tr, y_train, x_v, y_val, x_te, y_test, params={})
+    _, results = train_default_xgboost_model(x_tr, y_train, x_v, y_val)
     end_time = time.time()
     print(f"XGBoost Model Training Time: {end_time - start_time}")
     # Global Best Tracking
-    # current_best_val is now tracking Test Accuracy because val_df is test_df
-    current_best_val = val_acc
-    baseline_result = val_acc 
-    best_test_result = test_acc # Redundant but kept for clarity
+    # For now I use score_type to choose the rewards, default is auc
+    # TODO: rewards design
+
+    # Used to track the current score
+    current_best_score = results[score_type]
+    baseline_result = results[score_type] 
+
+    # Since using greedy search may cause llm stacks to generate the same code,
+    # I add a error torlerence to allow score dropping strategies
+    # so I need to trace the global best score and the features set
+    global_best_score = current_best_score 
+    optimal_feature_sets = {
+        'x_train': x_train_df,
+        'y_train': y_train,
+        'x_test': x_test_df,
+        'y_test': y_test,
+        'x_val': x_val_df,
+        'y_val': y_val
+    }
     
-    print(f"Baseline Test Accuracy: {current_best_val:.4f}")
+    print(f"Baseline Score (Used for optimization): {current_best_score:.4f}")
 
     importance_df = pd.DataFrame()
     useful_features = []
@@ -257,14 +239,14 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
         prompt = ''
         if current_step == 0:
             prompt = get_prompt_v4(
-                "classification", dataset_name, description, current_best_val, importance_df, masked_flag,
+                "classification", dataset_name, description, current_best_score, importance_df, masked_flag,
                 useful_features, useless_features, noise_threshold, 
                 last_step_report="None (First Step)", domain_dict=train_val_domain,
                 past_strategies_history=past_strategies_history
             )
         else:
             prompt = get_prompt_v4(
-                "classification", dataset_name, description, current_best_val, importance_df, masked_flag,
+                "classification", dataset_name, description, current_best_score, importance_df, masked_flag,
                 useful_features, useless_features, noise_threshold, 
                 last_step_report=last_step_report, domain_dict=train_val_domain,
                 past_strategies_history=past_strategies_history
@@ -383,16 +365,16 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
             # === DECISION LOGIC ===
             
             # Case 1: Improvement Detected
-            if best_candidate_score > current_best_val:
+            if best_candidate_score > current_best_score:
                 name, score, xt, xv, xte = candidates[best_candidate_idx]
                 winner_name = name
                 next_xtrain, next_xval, next_xtest = xt, xv, xte
                 
-                improvement = score - current_best_val
-                decision_text = f"ACCEPTED '{name}' strategy (Improved {current_best_val:.4f} -> {score:.4f})"
+                improvement = score - current_best_score
+                decision_text = f"ACCEPTED '{name}' strategy (Improved {current_best_score:.4f} -> {score:.4f})"
                 
                 # Update Best Scores
-                current_best_val = score
+                current_best_score = score
                 if score > best_test_result:
                     best_test_result = score
                 
@@ -421,24 +403,24 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
                     name, score, xt, xv, xte = gen_candidate
                     
                     # Calculate the performance drop
-                    drop = current_best_val - score
+                    drop = current_best_score - score
                     
                     # Sub-case 2a: Drop is too large (> 3%) -> REJECT
                     if drop > DROP_THRESHOLD:
                         decision_text = (f"REJECTED '{name}'. Performance dropped too much "
-                                         f"({current_best_val:.4f} -> {score:.4f}, drop > {DROP_THRESHOLD}%).")
+                                         f"({current_best_score:.4f} -> {score:.4f}, drop > {DROP_THRESHOLD}%).")
                         # Keep original state
                         
                     # Sub-case 2b: Drop is acceptable (<= 3%) -> EXPLORE/ACCEPT
                     else:
                         next_xtrain, next_xval, next_xtest = xt, xv, xte
                         
-                        improvement = score - current_best_val  # Will be negative, but record it
-                        decision_text = (f"EXPLORATION: Performance dropped ({current_best_val:.4f} -> {score:.4f}), "
+                        improvement = score - current_best_score  # Will be negative, but record it
+                        decision_text = (f"EXPLORATION: Performance dropped ({current_best_score:.4f} -> {score:.4f}), "
                                          f"but within {DROP_THRESHOLD}% limit. Accepted '{name}' for refinement.")
                         
                         # Update baseline to this new score
-                        current_best_val = score
+                        current_best_score = score
                         
                         # ===== NEW: Record exploratory strategy with detailed actions =====
                         strategy_record = {
@@ -446,7 +428,7 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
                             "strategy_name": name + " (Exploration)",
                             "validation_score": score,
                             "improvement": improvement,
-                            "best_score_at_step": current_best_val,
+                            "best_score_at_step": current_best_score,
                             "description": f"Exploratory strategy '{name}' with acceptable drop",
                             "dropped_features": [],
                             "generated_feature": gen_col if gen_col else None
