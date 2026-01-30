@@ -169,6 +169,9 @@ You must act as a precise Python developer.
 3. **Output**: Write a function that returns the modified dataframe, list of dropped columns, and new feature name.
 
 ```python
+import pandas as pd
+import numpy as np
+
 def apply_feature_engineering(df):
     # 1. Drop useless features
     dropped = ['feature_name']

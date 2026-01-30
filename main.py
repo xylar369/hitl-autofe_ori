@@ -100,7 +100,6 @@ def process_feature_importance(model, x_train_with_noise):
     importance_df = pd.DataFrame(importance_data).sort_values('gain', ascending=False).reset_index(drop=True)
     
     # 3. Identify the Noise Threshold
-    # We assume the noise column is named 'noise' (or find it by searching the string)
     noise_col_name = [c for c in all_cols if 'noise' in c.lower()][0]
     noise_threshold = importance_df.loc[importance_df['feature'] == noise_col_name, 'gain'].values[0]
     
@@ -110,16 +109,16 @@ def process_feature_importance(model, x_train_with_noise):
     
     # Useless: Gain is 0 or less than/equal to noise
     # (Excluding the noise column itself from the list)
+    clean_imp_df = importance_df[importance_df["feature"] != noise_col_name]
     useless_features = importance_df[
         (importance_df['gain'] <= noise_threshold) & 
         (importance_df['feature'] != noise_col_name)
     ]['feature'].tolist()
     
-    # 5. Calculate "Neutral" (Top 10% logic)
+    # 5. Calculate "Neutral" (Top 10% useful features)
     # If you still want a "Top 10%" slice regardless of noise:
-    num_top_10 = max(3, int(0.1 * len(all_cols))) 
-    # print(num_top_10)
-    top_10_features = importance_df.head(num_top_10)['feature'].tolist()
+    num_top_10 = max(2, int(0.1 * len(all_cols))) 
+    top_10_features = clean_imp_df.head(num_top_10)['feature'].tolist()
 
     return importance_df, useful_features, useless_features, top_10_features, noise_threshold
 
@@ -141,12 +140,6 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
     train_df = pd.read_csv(csv_train)
     val_df = pd.read_csv(csv_val)
     test_df = pd.read_csv(csv_test)
-    
-    # 2. Pre-processing (Masking)
-    if masked_flag:
-        train_df = mask_feature_name(train_df)
-        val_df = mask_feature_name(val_df)
-        test_df = mask_feature_name(test_df)
 
     # 3. Split X, y
     x_train_df, y_train = get_X_y(train_df)
@@ -161,6 +154,12 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
         dataset_name = meta.get("dataset_name", "unknown")
         description = meta.get("description", "")
     f.close()
+
+    if masked_flag:
+        train_df = mask_feature_name(train_df)
+        val_df = mask_feature_name(val_df)
+        test_df = mask_feature_name(test_df)
+        description = ''
     
     # PHASE 2: Init Variables
     # Init Tracking
@@ -202,7 +201,6 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
     useless_features = []
     noise_threshold = 0
     train_val_domain = {}
-    previous_error_generated_faeture = ""
     current_step = 0
     
     # ===== NEW: Track past best strategies =====
@@ -224,16 +222,29 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
         try:
             start_time = time.time()
             train_val_domain = get_data_domains(x_train_df)
+
+            # 1.1 minmax_scale_datasets, so the data can be comparable with noise level
             x_tr, x_v, x_te = minmax_scale_datasets(x_train_df, x_val_df, x_test_df)
-            x_cor_train, _, _ = add_noise_column_at_last(x_tr, x_v, x_te, noise_level=0.1)
-            analysis_clf, _, _, _ = train_xgboost_model(x_cor_train, y_train, x_v, y_val, x_te, y_test, params={})
+            # 1.2 add noise
+            x_cor_train, x_cor_val, _ = add_noise_column_at_last(x_tr, x_v, x_te, noise_level=0.1)
+            # 1.3 train model on corrupted datasets
+            analysis_clf, _ = train_default_xgboost_model(x_cor_train, y_train, x_cor_val, y_val)
+            # 1.4 process feature importance
             importance_df, useful_features, useless_f, _, noise_threshold = process_feature_importance(analysis_clf, x_cor_train)
-            useless_features = list(set(useless_features + useless_f))
+
+            # useless_features = list(set(useless_features + useless_f))
             end_time = time.time()
             print(f"Feature Improtance Analysis Time: {end_time - start_time}")
-            # useless_features = useless_f
+            useless_features = useless_f
         except Exception as e:
             print(f"Analysis Warning: {e}")
+
+        # After importance analysis, features are divided into 3 groups
+        # The key is lead llm to improve data distribution from 3 groups
+        # Top important: at least 2 features, so they can interact with each other
+        # Useful: can use or not use
+        # Useless: this is the most tricky part, we can choose to drop it or improve it
+        # How to solve this logic? -> let LLM decide?
 
         # 2. Build Prompt
         prompt = ''
@@ -332,7 +343,8 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
                 xv_drop = x_val_df.drop(columns=actual_dropped)
                 xte_drop = x_test_df.drop(columns=actual_dropped)
                 # quick_eval returns accuracy on 'xv_drop', which is the Test set
-                score_drop = quick_eval(xt_drop, y_train, xv_drop, y_val, xte_drop, y_test)
+                _, results = train_default_xgboost_model(xt_drop, y_train, xv_drop, y_val)
+                score_drop = results[score_type]
                 candidates.append(("Drop Only", score_drop, xt_drop, xv_drop, xte_drop))
                 step_log.append(f"- Drop Strategy ({actual_dropped}): {score_drop:.4f}")
 
@@ -341,15 +353,16 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
                 xt_gen = x_train_df.copy(); xt_gen[gen_col] = xtrain_mix[gen_col]
                 xv_gen = x_val_df.copy(); xv_gen[gen_col] = xval_mix[gen_col]
                 xte_gen = x_test_df.copy(); xte_gen[gen_col] = xtest_mix[gen_col]
-                # quick_eval on Test
-                score_gen = quick_eval(xt_gen, y_train, xv_gen, y_val, xte_gen, y_test)
+                _, results = train_default_xgboost_model(xt_gen, y_train, xv_gen, y_val)
+                score_gen = results[score_type]
                 candidates.append(("Generate Only", score_gen, xt_gen, xv_gen, xte_gen))
                 step_log.append(f"- Generate Strategy ('{gen_col}'): {score_gen:.4f}")
 
             # Candidate 3: MIXTURE
             if not inf_error and actual_dropped:
                 # quick_eval on Test
-                score_mix = quick_eval(xtrain_mix, y_train, xval_mix, y_val, xtest_mix, y_test)
+                _, results = train_default_xgboost_model(xtrain_mix, y_train, xval_mix, y_val, xtest_mix, y_test)
+                score_mix = results[score_type]
                 candidates.append(("Mixture", score_mix, xtrain_mix, xval_mix, xtest_mix))
                 step_log.append(f"- Mixture Strategy: {score_mix:.4f}")
 
@@ -361,8 +374,15 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
                 if score > best_candidate_score:
                     best_candidate_score = score
                     best_candidate_idx = i
-            
             # === DECISION LOGIC ===
+
+            if best_candidate_score > global_best_score:
+                _, _, xt, xv, xte = candidates[best_candidate_idx]
+                optimal_feature_sets["x_train"] = xt
+                optimal_feature_sets['x_val'] = xv
+                optimal_feature_sets['x_test'] = xte
+
+                global_best_score = best_candidate_score
             
             # Case 1: Improvement Detected
             if best_candidate_score > current_best_score:
@@ -375,8 +395,6 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
                 
                 # Update Best Scores
                 current_best_score = score
-                if score > best_test_result:
-                    best_test_result = score
                 
                 # ===== NEW: Record strategy to history with detailed actions =====
                 strategy_record = {
@@ -440,11 +458,6 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
                                      f"and Generated feature was invalid/missing).")
 
             # === END DECISION LOGIC ===
-            
-            if best_test_result == 100.00:
-                print("Perfect Accuracy Reached!")
-                break
-
             # Construct Report for Next Step
             last_step_report = f"Previous Strategies:\n" + "\n".join(step_log) + \
                                f"\n\nDecision: {decision_text}"
@@ -458,7 +471,7 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
 
         end_time = time.time()
         print(f"CHAMPION SELECTION (Ablation Study) Time: {end_time-start_time}")
-    return dataset_name, baseline_result, best_test_result, past_strategies_history
+    return dataset_name, optimal_feature_sets, past_strategies_history
 
     
 if __name__ == "__main__":
@@ -640,7 +653,7 @@ Examples:
                     csv_val = os.path.join(seed_dir, "validation.csv")
                     csv_test = os.path.join(seed_dir, "test.csv")
                     print(f"Processing dataset: {dataset_dir} with seed {seed}")
-                    dataset_name, baseline_acc, best_acc, strategies_history = processing_from_csv(
+                    dataset_name, optimal_feature_set, strategies_history = processing_from_csv(
                         csv_train, csv_val, csv_test, metadata_path,
                         steps=steps, masked_flag=masked,
                         results_dir=f"{results_dir}_seed{seed}",
@@ -650,11 +663,28 @@ Examples:
                         drop_threshold=drop_threshold,
                         port=port
                     )
-                    summary_dict[dataset_name] = (baseline_acc, best_acc)
-                    summary_text = f"{dataset_name} Seed {seed}: Baseline {baseline_acc:.2f}, Best {best_acc:.2f}, Improvement: {best_acc-baseline_acc:.2f}\n"
-                    with open(summary_path, "a+") as f:
-                        f.write(summary_text)
-                    f.close()
+
+                    optim_x_train, optim_x_val, optim_x_test = optimal_feature_set["x_train"], optimal_feature_set["x_val"], optimal_feature_set["x_test"]
+                    y_train, y_val, y_test = optimal_feature_set["y_train"], optimal_feature_set["y_val"], optimal_feature_set["y_test"]
+
+                    final_x = pd.concat([optim_x_train, optim_x_val], axis=0)
+                    final_y = pd.concat([y_train, y_val], axis=0)
+
+                    _, results = train_default_xgboost_model(final_x, final_y, optim_x_test, y_test)
+                    
+                    summary_dict = [{
+                        "dataset": dataset_name,
+                        "seed": seed,
+                        "acc": results["acc"],
+                        "auc": results["auc"],
+                        "f1": results["f1"]
+                    }]
+
+                    summary_ds = pd.DataFrame(summary_dict)
+                    write_header = not os.path.exists(summary_path)
+
+                    summary_ds.to_csv(summary_path, index=False, header=write_header, mode='a')
+
 
         
         

@@ -1,0 +1,42 @@
+You are an data expert, now you are required to optimize the data distribution for better model performance.
+
+First, a noise column is added at original dataset.
+By calcuating the GAIN values, the features are divided into 3 groups.
+Format: {feature name}: {Gain difference with Noise: "+" means higher and "-" means lower}, {Values domian: (Max, Min)}
+1. Top 10% (minimum 2 features)
+<TOP_FEATURES>
+
+2. Other useful features:
+<USEFUL_FEATURES>
+
+For features, detailed data information is provided.
+Format: {feature name}: {Gain difference with Noise: "+" means higher and "-" means lower}, {unique values / all values}, {Data type}, {Values domian: (Max, Min)}, {Samples}
+3. Weak features:
+<WEAK_FEATURES>
+
+The current <SCORE_TYPE>: <SCORE> (<CHANGE>)
+
+The Previous Strategy Report:
+<PREVIOUS_REPORT>
+
+The Top 5 Strategies with improvement
+<TOP_5>
+
+CODE TASK
+Frist, based on the features details, thinking why this data distribution lead to weak features which even not better than a random noise.
+Second, generate python code to optimize the data distribution.
+You must generate **Two** new features and drop **up to two** weak features to improve the data distribution which fits model better.
+The rule is like this:
+1. One generated feature should from the same group. (self non-linear transformation, interation with other features from the same group)
+2. The orther generated feature should consider groups interation. (combine a useful features and weak features)
+3. Focus improving weak features (if has).
+
+You are not allowed to generate or drop the same feautres which are rejected:
+<REJECT_FEATURES>
+
+Use the following templat, and return your thinking and why you choose to do this feature engineering.
+
+```python
+def apply_feature_engineering(df):
+```end
+
