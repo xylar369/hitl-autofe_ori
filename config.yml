@@ -1,0 +1,37 @@
+# Configuration for hitl-autofe_v3.py
+
+# Data configuration
+data_path: /home/xylar369/datasets
+
+# Optimization settings
+steps: 15
+
+# LLM settings
+llm_model: llama-70b
+temperature: 0.2
+
+# Feature engineering settings
+drop_threshold: 0  # Threshold for acceptable performance drop (%)
+
+# Output directory name (instead of timestamp)
+# Will be used as: /home/xylar369/results/hitl_autofe/{llm_model_name}/{dir_name}/results
+dir_name: shap
+
+# Seeds to process
+seeds:
+  - "0"
+  - "1"
+  - "2"
+  - "3"
+  - "4"
+
+# Data masking
+masked: false
+
+# Datasets to skip (already processed)
+processed_datasets: []
+
+# LLM service port
+port: 8000
+
+

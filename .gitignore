@@ -1,0 +1,23 @@
+# 排除 VS Code 的配置文件
+.vscode/
+
+# 排除 Python 编译文件
+__pycache__/
+*.pyc
+
+# 排除大型数据集 (AI 实验必备)
+data/
+datasets/
+*.zip
+*.tar.gz
+
+# 排除日志和输出模型
+logs/
+checkpoints/
+*.pth
+*.onnx
+
+# 排除虚拟环境
+venv/
+.venv/
+env/

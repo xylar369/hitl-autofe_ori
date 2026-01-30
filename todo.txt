@@ -1,0 +1,13 @@
+Opitmization:
+1. Prompt:
+1.1 Data Sample providing
+
+2. Using more powerful classificaiton model (TabPFN)
+
+Adavantages:
+1. prompt Length compute
+
+Urgent:
+1. error processing
+2. how to improve performance
+
