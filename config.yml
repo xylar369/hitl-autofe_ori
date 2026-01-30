@@ -1,7 +1,7 @@
 # Configuration for hitl-autofe_v3.py
 
 # Data configuration
-data_path: /home/xylar369/datasets
+data_path: /home/xylar369/datasets_622
 
 # Optimization settings
 steps: 15
@@ -11,22 +11,20 @@ llm_model: llama-70b
 temperature: 0.2
 
 # Feature engineering settings
-drop_threshold: 0  # Threshold for acceptable performance drop (%)
+drop_threshold: 1.5  # Threshold for acceptable performance drop (%)
 
 # Output directory name (instead of timestamp)
 # Will be used as: /home/xylar369/results/hitl_autofe/{llm_model_name}/{dir_name}/results
-dir_name: shap
+dir_name: ori_method
 
 # Seeds to process
 seeds:
   - "0"
   - "1"
   - "2"
-  - "3"
-  - "4"
 
 # Data masking
-masked: false
+masked: true
 
 # Datasets to skip (already processed)
 processed_datasets: []

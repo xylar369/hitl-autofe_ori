@@ -604,11 +604,12 @@ Examples:
     print("="*60 + "\n")
 
     llm_model_name = llm_model.split("/")[-1]
-    results_dir = f"../../results/hitl_autofe/{llm_model_name}/{time_sign}/results"
-    prompt_dir = f"../../results/hitl_autofe/{llm_model_name}/{time_sign}/prompt"
-    config_saved_dir = f"../../results/hitl_autofe/{llm_model_name}/{time_sign}"
+    results_dir = f"../../results_new/ori_method/{llm_model_name}/{time_sign}/results"
+    prompt_dir = f"../../results_new/ori_method/{llm_model_name}/{time_sign}/prompt"
+    # code_dir = f"../../results_new/ori_method/{llm_model_name}/{time_sign}/prompt"
+    config_saved_dir = f"../../results_new/ori_method/{llm_model_name}/{time_sign}"
 
-    summary_path =  f"../../results/hitl_autofe/{llm_model_name}/{time_sign}/summary.txt"
+    summary_path =  f"../../results_new/ori_method/{llm_model_name}/{time_sign}/summary.txt"
     summary_dict = {}
 
     # ===== SAVE RUNNING PARAMETERS =====

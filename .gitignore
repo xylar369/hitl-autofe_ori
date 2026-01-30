@@ -21,3 +21,5 @@ checkpoints/
 venv/
 .venv/
 env/
+
+code/
