@@ -4,10 +4,10 @@
 data_path: /home/xylar369/datasets_622
 
 # Optimization settings
-steps: 15
+steps: 50
 
 # LLM settings
-llm_model: llama-70b
+llm_model: Qwen/Qwen2.5-7B-Instruct
 temperature: 0.2
 
 # Feature engineering settings
@@ -15,7 +15,7 @@ drop_threshold: 1.5  # Threshold for acceptable performance drop (%)
 
 # Output directory name (instead of timestamp)
 # Will be used as: /home/xylar369/results/hitl_autofe/{llm_model_name}/{dir_name}/results
-dir_name: ori_method
+dir_name: ori_with_gain
 
 # Seeds to process
 seeds:
@@ -27,8 +27,16 @@ seeds:
 masked: true
 
 # Datasets to skip (already processed)
-processed_datasets: []
-
+processed_datasets:
+  - road-safety
+  - MiniBooNE
+  - jungle_chess_2pcs_raw_endgame_complete
+  - eucalyptus
+  - covertype
+  - wine
+  - kaggle_spaceship-titanic
+  - airlines
+  - pc1
 # LLM service port
 port: 8000
 

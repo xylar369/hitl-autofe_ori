@@ -170,7 +170,7 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
     # After Opitmization, we will combine train and val to get final results
     # This aligns with the baseline
     start_time = time.time()
-    _, results = train_default_xgboost_model(x_tr, y_train, x_v, y_val)
+    _, results = train_default_xgboost_model(x_train_df, y_train, x_val_df, y_val)
     end_time = time.time()
     print(f"XGBoost Model Training Time: {end_time - start_time}")
     # Global Best Tracking
@@ -361,7 +361,7 @@ def processing_from_csv(csv_train, csv_val, csv_test, metadata_path, steps=10, m
             # Candidate 3: MIXTURE
             if not inf_error and actual_dropped:
                 # quick_eval on Test
-                _, results = train_default_xgboost_model(xtrain_mix, y_train, xval_mix, y_val, xtest_mix, y_test)
+                _, results = train_default_xgboost_model(xtrain_mix, y_train, xval_mix, y_val)
                 score_mix = results[score_type]
                 candidates.append(("Mixture", score_mix, xtrain_mix, xval_mix, xtest_mix))
                 step_log.append(f"- Mixture Strategy: {score_mix:.4f}")
@@ -609,7 +609,7 @@ Examples:
     # code_dir = f"../../results_new/ori_method/{llm_model_name}/{time_sign}/prompt"
     config_saved_dir = f"../../results_new/ori_method/{llm_model_name}/{time_sign}"
 
-    summary_path =  f"../../results_new/ori_method/{llm_model_name}/{time_sign}/summary.txt"
+    summary_path =  f"../../results_new/ori_method/{llm_model_name}/{time_sign}/summary.csv"
     summary_dict = {}
 
     # ===== SAVE RUNNING PARAMETERS =====
@@ -647,6 +647,8 @@ Examples:
         dataset_path = os.path.join(data_path, dataset_dir)
         if os.path.isdir(dataset_path):
             for seed in seeds:
+                if dataset_dir == "credit-g" and seed in ['0', '1']:
+                    continue
                 metadata_path = os.path.join(dataset_path, "metadata.json")
                 seed_dir = os.path.join(dataset_path, f"seed_{seed}")
                 if os.path.exists(seed_dir):
